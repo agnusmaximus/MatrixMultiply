@@ -11,7 +11,12 @@ using namespace std;
 #define DIM 1024
 #define PRINT 0
 #define N_THREADS 4
-#define LINE_SIZE 32 
+#define LINE_SIZE 32
+#define BENCHMARK_NAIVE 0
+#define BENCHMARK_SIMPLE_PAR 0
+#define BENCHMARK_BLOCKED 0
+#define BENCHMARK_BLOCKED_PAR 1
+#define N_BENCHMARK_ITER 50
 
 void mat_mul_aligned(float * __restrict__ a, float * __restrict__ b, float * __restrict__ c) {
   for (int i = 0; i < DIM; i++) {
@@ -79,26 +84,6 @@ void mat_mul_block(float * __restrict__ a, float * __restrict__ b, float * __res
   }
 }
 
-void reorder(float * __restrict__ a, float * __restrict__ b) {
-  for (int i = 0; i < DIM; i++) {
-    for (int j = 0; j < DIM; j++) {
-      b[i*DIM+j] = a[j*DIM+i];
-    }
-  }
-}
-
-void mat_mul_block2(float * __restrict__ a, float * __restrict__ b, float * __restrict__ c) {
-  float *b2 = new float[DIM*DIM];
-  reorder(b, b2);
-  for (int i = 0; i < DIM; i+=LINE_SIZE) {
-    for (int j = 0; j < DIM; j+=LINE_SIZE) {
-      for (int k = 0; k < DIM; k+=LINE_SIZE) {
-        mat_mul_subblock(a+i*DIM+k, b2+j*DIM+k, c+i*DIM+j);
-      }
-    }
-  }
-}
-
 void mat_mul_block_par(float * __restrict__ a, float * __restrict__ b, float * __restrict__ c) {
   int range = DIM/LINE_SIZE;
 #pragma omp parallel for
@@ -143,57 +128,50 @@ void print_mat(float * __restrict__ a) {
   cout << "----------------------" << endl;
 }
 
+void benchmark(void (*mm)(float *, float *, float*), string name) {
+  
+  double theoretical_max = 38400;
+
+  clock_t avg_time = 0;
+  float avg_mflops = 0;
+  
+  for (int i = 0; i < N_BENCHMARK_ITER; i++) {
+    float * a = new float[DIM*DIM];
+    float * b = new float[DIM*DIM];
+    
+    for (int i = 0; i < DIM*DIM; i++) {
+      a[i] = rand() % 1000;
+      b[i] = rand() % 1000;
+    }
+  
+    float *c = new float[DIM*DIM];
+    clock_t t = get_time();
+    mm(a, b, c);
+    t = get_time() - t;
+    
+    avg_time += t;
+    avg_mflops += report_mflops((double)t/1000);
+  }
+
+  avg_time /= N_BENCHMARK_ITER;
+  avg_mflops /= N_BENCHMARK_ITER;
+  cout << name << "_MFlops: " << avg_mflops << "| Time: " << avg_time 
+       << "| Efficiency: " << avg_mflops / theoretical_max << endl;
+}
+
 int main(int argc, char * argv[]) {
   srand(time(NULL));
 
-  float * a = new float[DIM*DIM];
-  float * b = new float[DIM*DIM];
-
-  for (int i = 0; i < DIM*DIM; i++) {
-    a[i] = rand() % 1000;
-    b[i] = rand() % 1000;
+  if (BENCHMARK_NAIVE) {
+    benchmark(mat_mul_aligned, "Simple");
   }
-  print_mat(a);
-  print_mat(b);
-
-  float * c1 = new float[DIM*DIM];
-  clock_t t1 = get_time();
-  mat_mul_aligned(a, b, c1);
-  t1 = get_time() - t1;
-  print_mat(c1);
-  cout << "Aligned MFlops: " << report_mflops((double)t1/1000) << " Time: " << t1 << endl;
-
-  float * c3 = new float[DIM*DIM];
-  clock_t t3 = get_time();
-  mat_mul_parallel(a, b, c3);
-  t3 = get_time() - t3;
-  print_mat(c3);
-  cout << "Parallel MFlops: " << report_mflops((double)t3/1000) << " Time: " << t3 << endl;
-  check(c1, c3);
-
-  float * c4 = new float[DIM*DIM];
-  clock_t t4 = get_time();
-  mat_mul_block(a, b, c4);
-  t4 = get_time() - t4;
-  print_mat(c4);
-  cout << "Blocked MFlops: " << report_mflops((double)t4/1000) << " Time: " << t4 << endl;
-  check(c4, c3);
-  
-
-  float * c5 = new float[DIM*DIM];
-  clock_t t5 = get_time();
-  mat_mul_block_par(a, b, c5);
-  t5 = get_time() - t5;
-  print_mat(c5);
-  cout << "Parallel Blocked MFlops: " << report_mflops((double)t5/1000) << " Time: " << t5 << endl;
-  check(c5, c4);
-  exit(0);
-
-  float * c6 = new float[DIM*DIM];
-  clock_t t6 = get_time();
-  mat_mul_block2(a, b, c6);
-  t6 = get_time() - t6;
-  print_mat(c6);
-  cout << "Reordered Blocked MFlops: " << report_mflops((double)t6/1000) << " Time: " << t6 << endl;
-  check(c6, c5);
+  if (BENCHMARK_SIMPLE_PAR) {
+    benchmark(mat_mul_parallel, "Parallel");
+  }
+  if (BENCHMARK_BLOCKED) {
+    benchmark(mat_mul_block, "Blocked");
+  }
+  if (BENCHMARK_BLOCKED_PAR) {
+    benchmark(mat_mul_block_par, "Parallel_Blocked");
+  }
 }
