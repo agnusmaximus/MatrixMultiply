@@ -15,7 +15,8 @@ using namespace std;
 #define BENCHMARK_NAIVE 0
 #define BENCHMARK_SIMPLE_PAR 0
 #define BENCHMARK_BLOCKED 0
-#define BENCHMARK_BLOCKED_PAR 1
+#define BENCHMARK_BLOCKED_PAR_AVX 1
+#define BENCHMARK_BLOCKED_PAR_SSE4 1
 #define N_BENCHMARK_ITER 50
 #define VERIFY 0
 
@@ -127,7 +128,7 @@ void mat_mul_block(float * __restrict__ a, float * __restrict__ b, float * __res
   }
 }
 
-void mat_mul_block_par(float * __restrict__ a, float * __restrict__ b, float * __restrict__ c) {
+void mat_mul_block_par_avx(float * __restrict__ a, float * __restrict__ b, float * __restrict__ c) {
   int range = DIM/LINE_SIZE;
   omp_set_num_threads(N_THREADS);
 #pragma omp parallel for
@@ -135,6 +136,19 @@ void mat_mul_block_par(float * __restrict__ a, float * __restrict__ b, float * _
     for (int j = 0; j < DIM; j+=LINE_SIZE) {
       for (int k = 0; k < DIM; k+=LINE_SIZE) {
         mat_mul_subblock_AVX(a+i*DIM+k, b+k*DIM+j, c+i*DIM+j);
+      }
+    }
+  }
+}
+
+void mat_mul_block_par_sse(float * __restrict__ a, float * __restrict__ b, float * __restrict__ c) {
+  int range = DIM/LINE_SIZE;
+  omp_set_num_threads(N_THREADS);
+#pragma omp parallel for
+  for (int i = 0; i < DIM; i+=LINE_SIZE) {
+    for (int j = 0; j < DIM; j+=LINE_SIZE) {
+      for (int k = 0; k < DIM; k+=LINE_SIZE) {
+        mat_mul_subblock_SSE4(a+i*DIM+k, b+k*DIM+j, c+i*DIM+j);
       }
     }
   }
@@ -177,7 +191,7 @@ void benchmark(void (*mm)(float *, float *, float*), string name) {
   
   double theoretical_max = 38400;
 
-  clock_t avg_time = 0;
+  float avg_time = 0;
   float avg_mflops = 0;
   
   for (int i = 0; i < N_BENCHMARK_ITER; ++i) {
@@ -222,7 +236,10 @@ int main(int argc, char * argv[]) {
   if (BENCHMARK_BLOCKED) {
     benchmark(mat_mul_block, "Blocked");
   }
-  if (BENCHMARK_BLOCKED_PAR) {
-    benchmark(mat_mul_block_par, "Parallel_Blocked");
+  if (BENCHMARK_BLOCKED_PAR_AVX) {
+    benchmark(mat_mul_block_par_avx, "Parallel_Blocked_AVX");
+  }
+  if (BENCHMARK_BLOCKED_PAR_SSE4) {
+    benchmark(mat_mul_block_par_sse, "Parallel_Blocked_SSE");
   }
 }
