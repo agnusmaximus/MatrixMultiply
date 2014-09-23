@@ -8,16 +8,16 @@
 
 using namespace std;
 
-#define DIM 1024
+#define DIM 2400
 #define PRINT 0
 #define N_THREADS 4
-#define LINE_SIZE 32
+#define LINE_SIZE 24
 #define BENCHMARK_NAIVE 0
 #define BENCHMARK_SIMPLE_PAR 0
 #define BENCHMARK_BLOCKED 0
 #define BENCHMARK_BLOCKED_PAR_AVX 1
-#define BENCHMARK_BLOCKED_PAR_SSE4 1
-#define N_BENCHMARK_ITER 50
+#define BENCHMARK_BLOCKED_PAR_SSE4 0
+#define N_BENCHMARK_ITER 10
 #define VERIFY 0
 
 void mat_mul_aligned(float * __restrict__ a, float * __restrict__ b, float * __restrict__ c) {
@@ -54,25 +54,17 @@ void mat_mul_subblock_AVX(float * __restrict__ a, float * __restrict__ b, float 
     __m256 c1 = _mm256_load_ps((const float *)&c[i*DIM]);
     __m256 c2 = _mm256_load_ps((const float *)&c[i*DIM+8]);
     __m256 c3 = _mm256_load_ps((const float *)&c[i*DIM+16]);
-    __m256 c4 = _mm256_load_ps((const float *)&c[i*DIM+24]);
-
     for (int k = 0; k < LINE_SIZE; ++k) {
-      __m256 b1 = _mm256_load_ps((const float *)&b[k*DIM]);
-      __m256 b2 = _mm256_load_ps((const float *)&b[k*DIM+8]);
-      __m256 b3 = _mm256_load_ps((const float *)&b[k*DIM+16]);
-      __m256 b4 = _mm256_load_ps((const float *)&b[k*DIM+24]);
       __m256 a1 = _mm256_set1_ps(a[i*DIM+k]);
       
-      c1 = _mm256_fmadd_ps(a1, b1, c1);
-      c2 = _mm256_fmadd_ps(a1, b2, c2);
-      c3 = _mm256_fmadd_ps(a1, b3, c3);
-      c4 = _mm256_fmadd_ps(a1, b4, c4);
+      c1 = _mm256_fmadd_ps(a1, _mm256_load_ps((const float *)&b[k*DIM]), c1);
+      c2 = _mm256_fmadd_ps(a1, _mm256_load_ps((const float *)&b[k*DIM+8]), c2);
+      c3 = _mm256_fmadd_ps(a1, _mm256_load_ps((const float *)&b[k*DIM+16]), c3);
     }
     
     _mm256_store_ps(&c[i*DIM], c1);
     _mm256_store_ps(&c[i*DIM+8], c2);
     _mm256_store_ps(&c[i*DIM+16], c3);
-    _mm256_store_ps(&c[i*DIM+24], c4);
   }
 }
 
@@ -129,6 +121,12 @@ void mat_mul_block(float * __restrict__ a, float * __restrict__ b, float * __res
 }
 
 void mat_mul_block_par_avx(float * __restrict__ a, float * __restrict__ b, float * __restrict__ c) {
+  
+  if (DIM == LINE_SIZE) {
+    mat_mul_subblock_AVX(a, b, c);
+    return;
+  }
+
   int range = DIM/LINE_SIZE;
   omp_set_num_threads(N_THREADS);
 #pragma omp parallel for
@@ -160,16 +158,6 @@ long long int get_time() {
   return tp.tv_sec * 1000 + tp.tv_usec / 1000;
 }
 
-void check(float * __restrict__ a, float * __restrict__ b) {
-  for (int i = 0; i < DIM * DIM; ++i) {
-    if (a[i] != b[i]) {
-      cout << "Error, not the same" << endl;
-      return;
-    }
-  }
-  cout << "All good" << endl;
-}
-
 double report_mflops(double t) {
   double n = DIM;
   double f = (2.0*(n*n*n) / t) / 1000000;
@@ -187,6 +175,16 @@ void print_mat(float * __restrict__ a) {
   cout << "----------------------" << endl;
 }
 
+void check(float * __restrict__ a, float * __restrict__ b) {
+  for (int i = 0; i < DIM * DIM; ++i) {
+    if (a[i] != b[i]) {
+      cout << "Error, not the same" << endl;
+      exit(0);
+    }
+  }
+  cout << "All good" << endl;
+}
+
 void benchmark(void (*mm)(float *, float *, float*), string name) {
   
   double theoretical_max = 38400;
@@ -195,15 +193,15 @@ void benchmark(void (*mm)(float *, float *, float*), string name) {
   float avg_mflops = 0;
   
   for (int i = 0; i < N_BENCHMARK_ITER; ++i) {
-    float * a __attribute__((aligned(16))) = new float[DIM*DIM];
-    float * b __attribute__((aligned(16))) = new float[DIM*DIM];
+    float *a = new float[DIM*DIM];
+    float *b = new float[DIM*DIM];
     
-    for (int i = 0; i < DIM*DIM; ++i) {
-      a[i] = rand() % 1000;
-      b[i] = rand() % 1000;
+    for (int j = 0; j < DIM*DIM; ++j) {
+      a[j] = rand() % 1000;
+      b[j] = rand() % 1000;
     }
   
-    float *c __attribute__((aligned(16))) = new float[DIM*DIM];
+    float *c = new float[DIM*DIM];
     clock_t t = get_time();
     mm(a, b, c);
     t = get_time() - t;
@@ -212,7 +210,7 @@ void benchmark(void (*mm)(float *, float *, float*), string name) {
     avg_mflops += report_mflops((double)t/1000);
 
     if (VERIFY) {
-      float *cv __attribute__((aligned(16))) = new float[DIM*DIM];
+      float *cv = new float[DIM*DIM];
       mat_mul_aligned(a, b, cv);
       check(c, cv);
     }
@@ -220,8 +218,8 @@ void benchmark(void (*mm)(float *, float *, float*), string name) {
 
   avg_time /= N_BENCHMARK_ITER;
   avg_mflops /= N_BENCHMARK_ITER;
-  cout << name << "_MFlops: " << avg_mflops << "| Time: " << avg_time 
-       << "| Efficiency: " << avg_mflops / theoretical_max << endl;
+  cout << name << "_MFlops: " << (double)avg_mflops << "| Time: " << (double)avg_time 
+       << "| Efficiency: " << (double)avg_mflops / theoretical_max << endl;
 }
 
 int main(int argc, char * argv[]) {
