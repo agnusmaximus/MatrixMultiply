@@ -16,7 +16,7 @@ using namespace std;
 #define BENCHMARK_SIMPLE_PAR 0
 #define BENCHMARK_BLOCKED 0
 #define BENCHMARK_BLOCKED_PAR_AVX 1
-#define BENCHMARK_BLOCKED_PAR_SSE4 0
+#define BENCHMARK_BLOCKED_PAR_SSE4 1
 #define N_BENCHMARK_ITER 10
 #define VERIFY 0
 
@@ -76,8 +76,7 @@ void mat_mul_subblock_SSE4(float * __restrict__ a, float * __restrict__ b, float
     __m128 c4 = _mm_load_ps((const float *)&c[i*DIM+12]);
     __m128 c5 = _mm_load_ps((const float *)&c[i*DIM+16]);
     __m128 c6 = _mm_load_ps((const float *)&c[i*DIM+20]);
-    __m128 c7 = _mm_load_ps((const float *)&c[i*DIM+24]);
-    __m128 c8 = _mm_load_ps((const float *)&c[i*DIM+28]);
+
     for (int k = 0; k < LINE_SIZE; ++k) {
       __m128 b1 = _mm_load_ps((const float *)&b[k*DIM]);
       __m128 b2 = _mm_load_ps((const float *)&b[k*DIM+4]);
@@ -85,8 +84,6 @@ void mat_mul_subblock_SSE4(float * __restrict__ a, float * __restrict__ b, float
       __m128 b4 = _mm_load_ps((const float *)&b[k*DIM+12]);
       __m128 b5 = _mm_load_ps((const float *)&b[k*DIM+16]);
       __m128 b6 = _mm_load_ps((const float *)&b[k*DIM+20]);
-      __m128 b7 = _mm_load_ps((const float *)&b[k*DIM+24]);
-      __m128 b8 = _mm_load_ps((const float *)&b[k*DIM+28]);
       __m128 a1 = _mm_set1_ps(a[i*DIM+k]);
 
       c1 = _mm_add_ps(c1, _mm_mul_ps(a1, b1));
@@ -95,8 +92,6 @@ void mat_mul_subblock_SSE4(float * __restrict__ a, float * __restrict__ b, float
       c4 = _mm_add_ps(c4, _mm_mul_ps(a1, b4));
       c5 = _mm_add_ps(c5, _mm_mul_ps(a1, b5));
       c6 = _mm_add_ps(c6, _mm_mul_ps(a1, b6));
-      c7 = _mm_add_ps(c7, _mm_mul_ps(a1, b7));
-      c8 = _mm_add_ps(c8, _mm_mul_ps(a1, b8));
     }
     _mm_store_ps(&c[i*DIM], c1);
     _mm_store_ps(&c[i*DIM+4], c2);
@@ -104,8 +99,6 @@ void mat_mul_subblock_SSE4(float * __restrict__ a, float * __restrict__ b, float
     _mm_store_ps(&c[i*DIM+12], c4);
     _mm_store_ps(&c[i*DIM+16], c5);
     _mm_store_ps(&c[i*DIM+20], c6);
-    _mm_store_ps(&c[i*DIM+24], c7);
-    _mm_store_ps(&c[i*DIM+28], c8);
   }
 }
 
